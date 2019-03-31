@@ -214,12 +214,6 @@ class Manage:
     def filter(self, **kwargs):
         return SelectQuerySet(self.model_cls, **kwargs)
 
-    def save(self):
-        if self.model_cls.id is None:
-            pass
-        else:
-            pass
-
 
 class Model(metaclass=ModelMeta):
     id = None
