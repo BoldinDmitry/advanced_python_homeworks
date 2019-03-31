@@ -1,7 +1,10 @@
+import abc
 import binascii
 import hashlib
 import os
 import sqlite3
+import inspect
+from abc import ABC
 
 conn = sqlite3.connect("database.db")
 cursor = conn.cursor()
@@ -29,6 +32,16 @@ class Field:
         elif self.required and value is None and self.default is not None:
             value = self.default
         return self.f_type(value)
+
+    @staticmethod
+    def to_sql(value) -> str:
+        if type(value) is bool:
+            return str(int(value))
+        elif type(value) is str:
+            return f"'{value}'"
+        elif type(value) is float or type(value) is int:
+            return value
+        raise ValueError(f"{type(value)} is not supported")
 
 
 class IntField(Field):
@@ -92,7 +105,8 @@ class ModelMeta(type):
         if not hasattr(meta, 'table_name'):
             raise ValueError('table_name is empty')
 
-        # todo mro
+        for base in bases:
+            namespace.update(base.__dict__.get('_fields', []))
 
         fields = {k: v for k, v in namespace.items()
                   if isinstance(v, Field)}
@@ -100,6 +114,89 @@ class ModelMeta(type):
         namespace['_table_name'] = meta.table_name
 
         return super().__new__(mcs, name, bases, namespace)
+
+
+class QuerySet:
+    def __init__(self, model_cls):
+        self.model_cls = model_cls
+
+    @abc.abstractmethod
+    def build(self):
+        pass
+
+
+class QuerySetWhere(QuerySet, ABC):
+    def __init__(self, model_cls):
+        super().__init__(model_cls)
+        self.params_to_sql = {
+            "eq": "=",
+            "bg": ">",
+            "un": "<",
+            None: "="
+        }
+        self.where = {}
+
+    def filter(self, **kwargs):
+        """
+        Сделать, чтобы можно было добавлять условия через __
+        eq - равенство
+        bg - больше
+        un - меньше
+        :param kwargs:
+        :return:
+        """
+        for name, value in kwargs.items():
+            if name.split("__")[0] not in self.model_cls.__dict__ and name.split("__")[0] != "id":
+                raise ValueError(f"No field {name} in {type(self.model_cls).__name__} found")
+            self.where[name] = Field.to_sql(value)
+
+    def build_filter(self):
+        """
+        filter(name__gt=1).filter(title=5)
+        :return:
+        """
+        sql_filter = "WHERE "
+        for name_param, value in self.where.items():
+            # name, param = name_param.split("__") if "__" in name_param else name_param, None
+            name_splited = name_param.split("__")
+            if len(name_splited) == 2:
+                sql_filter += f"{name_splited[0]} {self.params_to_sql[name_splited[1]]} {value} AND "
+            else:
+                sql_filter += f"{name_splited[0]} {self.params_to_sql[None]} {value} AND "
+        return sql_filter[:-5] if sql_filter != "where " else ""
+
+
+class SelectQuerySet(QuerySetWhere, ABC):
+    def __init__(self, model_cls, **kwargs):
+        super().__init__(model_cls)
+        self.fields = None
+        self.filter(**kwargs)
+
+    def get(self, *args):
+        args = "*" if args == () else args
+        q = ["SELECT"]
+        q += [arg for arg in args]
+        q += [f"FROM {self.model_cls.Meta.table_name}"]
+        q += [self.build_filter()]
+        sqlite_command = ' '.join(q)
+
+        cursor.execute(sqlite_command)
+        rows = cursor.fetchall()
+        var_names = self.model_cls._fields.keys()
+        models = []
+        for row in rows:
+            kwargs = {}
+            for name, value in zip(var_names, row[1:]):
+                kwargs[name] = value
+            model = self.model_cls(**kwargs)
+            model.id = row[0]
+            models.append(model)
+
+        return models
+
+    def filter(self, **kwargs):
+        super().filter(**kwargs)
+        return self
 
 
 class Manage:
@@ -111,61 +208,17 @@ class Manage:
             self.model_cls = owner
         return self
 
-    def create(self, **kwargs):
-        return self.model_cls(**kwargs).save()
-
     def all(self):
-        names_columns_cmd = f"PRAGMA table_info({self.model_cls.Meta.table_name})"
-        names = [name[1] for name in cursor.execute(names_columns_cmd).fetchall()]
-
-        all_rows_cmd = f"select * from {self.model_cls.Meta.table_name}"
-        all_rows = cursor.execute(all_rows_cmd).fetchall()
-
-        objects = []
-        for row in all_rows:
-            kwargs = dict(zip(names, row))
-            model = self.model_cls(**kwargs)
-            setattr(model, "id", row[0])
-            objects.append(model)
-        return objects
+        return SelectQuerySet(self.model_cls)
 
     def filter(self, **kwargs):
-        names_columns_cmd = f"PRAGMA table_info({self.model_cls.Meta.table_name})"
-        names = [name[1] for name in cursor.execute(names_columns_cmd).fetchall()]
+        return SelectQuerySet(self.model_cls, **kwargs)
 
-        filter_cmd = f"""SELECT * FROM {self.model_cls.Meta.table_name} WHERE """
-        conditions = ""
-
-        for name, value in kwargs.items():
-            if conditions != "":
-                conditions += " AND "
-            if type(value) is bool:
-                conditions += f"{name} = {int(value)}"
-            elif type(value) is str:
-                conditions += f"{name} = '{value}'"
-            else:
-                conditions += f"{name} = {value}"
-
-        filter_cmd += conditions
-
-        all_rows = cursor.execute(filter_cmd).fetchall()
-
-        objects = []
-        for row in all_rows:
-            kwargs = dict(zip(names, row))
-            model = self.model_cls(**kwargs)
-            setattr(model, "id", row[0])
-            objects.append(model)
-        return objects
-
-    def get(self, **kwargs):
-        model = self.filter(**kwargs)
-        if len(model) > 1:
-            raise ValueError("Too many objects found")
-        if len(model) == 0:
-            raise ValueError("No objects found")
-
-        return model[0]
+    def save(self):
+        if self.model_cls.id is None:
+            pass
+        else:
+            pass
 
 
 class Model(metaclass=ModelMeta):
@@ -175,8 +228,7 @@ class Model(metaclass=ModelMeta):
         table_name = ''
 
     objects = Manage()
-    # todo DoesNotExist
-    # Бросать искоючение, если, например, get вернул не объект, а None
+
     if objects is None:
         raise ValueError("Objects manager is None")
 
@@ -243,3 +295,7 @@ class User(Model):
 
     class Meta:
         table_name = 'Users'
+
+
+u = User.objects.filter(id__bg=4).filter(username="abc").get()[-1]
+print(u.id)
