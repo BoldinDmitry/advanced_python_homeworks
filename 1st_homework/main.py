@@ -9,13 +9,7 @@ from abc import ABC
 conn = sqlite3.connect("database.db")
 cursor = conn.cursor()
 
-types_convert = {
-    int: "integer",
-    float: "real",
-    str: "text",
-    bool: "boolean"
-
-}
+types_convert = {int: "integer", float: "real", str: "text", bool: "boolean"}
 
 
 class Field:
@@ -28,7 +22,7 @@ class Field:
         if value is None and not self.required:
             return None
         elif self.required and value is None and self.default is None:
-            raise ValueError('Required field is none and no default')
+            raise ValueError("Required field is none and no default")
         elif self.required and value is None and self.default is not None:
             value = self.default
         return self.f_type(value)
@@ -70,22 +64,20 @@ class PasswordField(StringField):
     @staticmethod
     def hash_password(password):
         """Hash a password for storing."""
-        salt = hashlib.sha256(os.urandom(60)).hexdigest().encode('ascii')
-        pwdhash = hashlib.pbkdf2_hmac('sha512', password.encode('utf-8'),
-                                      salt, 100000)
+        salt = hashlib.sha256(os.urandom(60)).hexdigest().encode("ascii")
+        pwdhash = hashlib.pbkdf2_hmac("sha512", password.encode("utf-8"), salt, 100000)
         pwdhash = binascii.hexlify(pwdhash)
-        return (salt + pwdhash).decode('ascii')
+        return (salt + pwdhash).decode("ascii")
 
     @staticmethod
     def verify_password(stored_password, provided_password):
         """Verify a stored password against one provided by user"""
         salt = stored_password[:64]
         stored_password = stored_password[64:]
-        pwdhash = hashlib.pbkdf2_hmac('sha512',
-                                      provided_password.encode('utf-8'),
-                                      salt.encode('ascii'),
-                                      100000)
-        pwdhash = binascii.hexlify(pwdhash).decode('ascii')
+        pwdhash = hashlib.pbkdf2_hmac(
+            "sha512", provided_password.encode("utf-8"), salt.encode("ascii"), 100000
+        )
+        pwdhash = binascii.hexlify(pwdhash).decode("ascii")
         return pwdhash == stored_password
 
 
@@ -96,22 +88,21 @@ class BoolField(Field):
 
 class ModelMeta(type):
     def __new__(mcs, name, bases, namespace):
-        if name == 'Model':
+        if name == "Model":
             return super().__new__(mcs, name, bases, namespace)
 
-        meta = namespace.get('Meta')
+        meta = namespace.get("Meta")
         if meta is None:
-            raise ValueError('Meta is None')
-        if not hasattr(meta, 'table_name'):
-            raise ValueError('table_name is empty')
+            raise ValueError("Meta is None")
+        if not hasattr(meta, "table_name"):
+            raise ValueError("table_name is empty")
 
         for base in bases:
-            namespace.update(base.__dict__.get('_fields', []))
+            namespace.update(base.__dict__.get("_fields", {}))
 
-        fields = {k: v for k, v in namespace.items()
-                  if isinstance(v, Field)}
-        namespace['_fields'] = fields
-        namespace['_table_name'] = meta.table_name
+        fields = {k: v for k, v in namespace.items() if isinstance(v, Field)}
+        namespace["_fields"] = fields
+        namespace["_table_name"] = meta.table_name
 
         return super().__new__(mcs, name, bases, namespace)
 
@@ -126,14 +117,10 @@ class QuerySet:
 
 
 class QuerySetWhere(QuerySet, ABC):
+    params_to_sql = {"eq": "=", "bg": ">", "un": "<", None: "="}
+
     def __init__(self, model_cls):
         super().__init__(model_cls)
-        self.params_to_sql = {
-            "eq": "=",
-            "bg": ">",
-            "un": "<",
-            None: "="
-        }
         self.where = {}
 
     def filter(self, **kwargs):
@@ -146,8 +133,13 @@ class QuerySetWhere(QuerySet, ABC):
         :return:
         """
         for name, value in kwargs.items():
-            if name.split("__")[0] not in self.model_cls.__dict__ and name.split("__")[0] != "id":
-                raise ValueError(f"No field {name} in {type(self.model_cls).__name__} found")
+            if (
+                name.split("__")[0] not in self.model_cls.__dict__
+                and name.split("__")[0] != "id"
+            ):
+                raise ValueError(
+                    f"No field {name} in {type(self.model_cls).__name__} found"
+                )
             self.where[name] = Field.to_sql(value)
 
     def build_filter(self):
@@ -155,15 +147,21 @@ class QuerySetWhere(QuerySet, ABC):
         filter(name__gt=1).filter(title=5)
         :return:
         """
-        sql_filter = "WHERE "
+        sql_filter = ""
         for name_param, value in self.where.items():
-            # name, param = name_param.split("__") if "__" in name_param else name_param, None
             name_splited = name_param.split("__")
+            if len(sql_filter) > 0:
+                sql_filter += " AND "
             if len(name_splited) == 2:
-                sql_filter += f"{name_splited[0]} {self.params_to_sql[name_splited[1]]} {value} AND "
+                sql_filter += (
+                    f"{name_splited[0]} {self.params_to_sql[name_splited[1]]} {value}"
+                )
             else:
-                sql_filter += f"{name_splited[0]} {self.params_to_sql[None]} {value} AND "
-        return sql_filter[:-5] if sql_filter != "where " else ""
+                sql_filter += f"{name_splited[0]} {self.params_to_sql[None]} {value}"
+        if len(sql_filter) > 0:
+            return "WHERE " + sql_filter
+        else:
+            return ""
 
 
 class SelectQuerySet(QuerySetWhere, ABC):
@@ -178,7 +176,7 @@ class SelectQuerySet(QuerySetWhere, ABC):
         q += [arg for arg in args]
         q += [f"FROM {self.model_cls.Meta.table_name}"]
         q += [self.build_filter()]
-        sqlite_command = ' '.join(q)
+        sqlite_command = " ".join(q)
 
         cursor.execute(sqlite_command)
         rows = cursor.fetchall()
@@ -219,7 +217,7 @@ class Model(metaclass=ModelMeta):
     id = None
 
     class Meta:
-        table_name = ''
+        table_name = ""
 
     objects = Manage()
 
@@ -254,7 +252,9 @@ class Model(metaclass=ModelMeta):
         table_fields = "id INTEGER PRIMARY KEY AUTOINCREMENT"
         for field_name, field in self._fields.items():
             table_fields += ", " + field_name + " " + types_convert[field.f_type]
-        create_command = f"""CREATE TABLE IF NOT EXISTS {meta.table_name} ({table_fields})"""
+        create_command = (
+            f"""CREATE TABLE IF NOT EXISTS {meta.table_name} ({table_fields})"""
+        )
         cursor.execute(create_command)
         conn.commit()
 
@@ -288,8 +288,8 @@ class User(Model):
         return self.username
 
     class Meta:
-        table_name = 'Users'
+        table_name = "Users"
 
 
-u = User.objects.filter(id__bg=4).filter(username="abc").get()[-1]
+u = User.objects.filter(id=4).filter(username="abc").get()[-1]
 print(u.id)
