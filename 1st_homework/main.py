@@ -28,29 +28,36 @@ class Field:
         return self.f_type(value)
 
     @staticmethod
+    @abc.abstractmethod
     def to_sql(value) -> str:
-        if type(value) is bool:
-            return str(int(value))
-        elif type(value) is str:
-            return f"'{value}'"
-        elif type(value) is float or type(value) is int:
-            return value
-        raise ValueError(f"{type(value)} is not supported")
+        pass
 
 
 class IntField(Field):
     def __init__(self, required=True, default=None, pk=False):
         super().__init__(int, required, default, pk)
 
+    @staticmethod
+    def to_sql(value):
+        return value
+
 
 class FloatField(Field):
     def __init__(self, required=True, default=None, pk=False):
         super().__init__(float, required, default, pk)
 
+    @staticmethod
+    def to_sql(value):
+        return value
+
 
 class StringField(Field):
     def __init__(self, required=True, default=None, pk=False):
         super().__init__(str, required, default, pk)
+
+    @staticmethod
+    def to_sql(value):
+        return f"'{value}'"
 
 
 class PasswordField(StringField):
@@ -84,6 +91,10 @@ class PasswordField(StringField):
 class BoolField(Field):
     def __init__(self, required=True, default=None):
         super().__init__(bool, required, default)
+
+    @staticmethod
+    def to_sql(value):
+        return int(value)
 
 
 class ModelMeta(type):
@@ -133,6 +144,7 @@ class QuerySetWhere(QuerySet, ABC):
         :return:
         """
         for name, value in kwargs.items():
+
             if (
                 name.split("__")[0] not in self.model_cls.__dict__
                 and name.split("__")[0] != "id"
@@ -140,7 +152,11 @@ class QuerySetWhere(QuerySet, ABC):
                 raise ValueError(
                     f"No field {name} in {type(self.model_cls).__name__} found"
                 )
-            self.where[name] = Field.to_sql(value)
+            field = self.model_cls._fields.get(name, "id")
+            if field == "id":
+                self.where[name] = value
+            else:
+                self.where[name] = field.to_sql(value)
 
     def build_filter(self):
         """
@@ -291,5 +307,5 @@ class User(Model):
         table_name = "Users"
 
 
-u = User.objects.filter(id=4).filter(username="abc").get()[-1]
-print(u.id)
+u = User.objects.filter(id=4).filter(username="«").get()
+print(u)
