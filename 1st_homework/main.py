@@ -3,10 +3,8 @@ import binascii
 import hashlib
 import os
 import sqlite3
-import inspect
-from abc import ABC
 
-conn = sqlite3.connect("database.db")
+conn = sqlite3.connect("orm/database.db")
 cursor = conn.cursor()
 
 types_convert = {int: "integer", float: "real", str: "text", bool: "boolean"}
@@ -39,7 +37,7 @@ class IntField(Field):
 
     @staticmethod
     def to_sql(value):
-        return value
+        return str(value)
 
 
 class FloatField(Field):
@@ -48,7 +46,7 @@ class FloatField(Field):
 
     @staticmethod
     def to_sql(value):
-        return value
+        return str(value)
 
 
 class StringField(Field):
@@ -94,7 +92,7 @@ class BoolField(Field):
 
     @staticmethod
     def to_sql(value):
-        return int(value)
+        return str(int(value))
 
 
 class ModelMeta(type):
@@ -127,7 +125,7 @@ class QuerySet:
         pass
 
 
-class QuerySetWhere(QuerySet, ABC):
+class QuerySetWhere(QuerySet):
     params_to_sql = {"eq": "=", "bg": ">", "un": "<", None: "="}
 
     def __init__(self, model_cls):
@@ -146,8 +144,8 @@ class QuerySetWhere(QuerySet, ABC):
         for name, value in kwargs.items():
 
             if (
-                name.split("__")[0] not in self.model_cls.__dict__
-                and name.split("__")[0] != "id"
+                    name.split("__")[0] not in self.model_cls.__dict__
+                    and name.split("__")[0] != "id"
             ):
                 raise ValueError(
                     f"No field {name} in {type(self.model_cls).__name__} found"
@@ -158,29 +156,39 @@ class QuerySetWhere(QuerySet, ABC):
             else:
                 self.where[name] = field.to_sql(value)
 
-    def build_filter(self):
+    def build(self):
         """
         filter(name__gt=1).filter(title=5)
         :return:
         """
-        sql_filter = ""
+        names, values = [], []
         for name_param, value in self.where.items():
             name_splited = name_param.split("__")
-            if len(sql_filter) > 0:
-                sql_filter += " AND "
             if len(name_splited) == 2:
-                sql_filter += (
-                    f"{name_splited[0]} {self.params_to_sql[name_splited[1]]} {value}"
-                )
+                names += [f"{name_splited[0]} {self.params_to_sql[name_splited[1]]} ?"]
             else:
-                sql_filter += f"{name_splited[0]} {self.params_to_sql[None]} {value}"
-        if len(sql_filter) > 0:
-            return "WHERE " + sql_filter
+                names += [f"{name_splited[0]} = ?"]
+            values += [value]
+
+        names = " AND ".join(names)
+        if len(names) > 0:
+            return "WHERE " + names, values
         else:
-            return ""
+            return "", None
 
 
-class SelectQuerySet(QuerySetWhere, ABC):
+class UpdateQuerySet(QuerySetWhere, abc.ABC):
+    def __init__(self, model_cls, **kwargs):
+        super().__init__(model_cls)
+        self.fields = None
+        self.filter(**kwargs)
+
+    @abc.abstractmethod
+    def update(self, **kwargs):
+        pass
+
+
+class SelectQuerySet(UpdateQuerySet):
     def __init__(self, model_cls, **kwargs):
         super().__init__(model_cls)
         self.fields = None
@@ -191,10 +199,10 @@ class SelectQuerySet(QuerySetWhere, ABC):
         q = ["SELECT"]
         q += [arg for arg in args]
         q += [f"FROM {self.model_cls.Meta.table_name}"]
-        q += [self.build_filter()]
+        names, values = self.build()
+        q += [names]
         sqlite_command = " ".join(q)
-
-        cursor.execute(sqlite_command)
+        cursor.execute(sqlite_command, values)
         rows = cursor.fetchall()
         var_names = self.model_cls._fields.keys()
         models = []
@@ -207,6 +215,16 @@ class SelectQuerySet(QuerySetWhere, ABC):
             models.append(model)
 
         return models
+
+    def update(self, **kwargs):
+        objects = self.get("*")
+        for object in objects:
+            for kwarg in kwargs.items():
+                name = kwarg[0]
+                value = kwarg[1]
+                if name in object._fields:
+                    setattr(object, name, value)
+                object.update()
 
     def filter(self, **kwargs):
         super().filter(**kwargs)
@@ -247,18 +265,15 @@ class Model(metaclass=ModelMeta):
             setattr(self, field_name, value)
 
     def save(self):
-        names = ""
-        values = ""
+        names = []
+        values = []
         for name, value in self.__dict__.items():
-            names += name + ", "
-            if type(value) is str:
-                values += f"'{value}', "
-            elif type(value) is bool:
-                values += str(int(value)) + ", "
-            else:
-                values += str(value) + ", "
+            names += [name]
+            values += [self._fields[name].to_sql(value)]
 
-        insert_command = f"""INSERT INTO {self.Meta.table_name} ({names[:-2]}) VALUES ({values[:-2]});"""
+        names = ",".join(names)
+        values = ",".join(values)
+        insert_command = f"""INSERT INTO {self.Meta.table_name} ({names}) VALUES ({values});"""
         cursor.execute(insert_command)
         setattr(self, "id", cursor.lastrowid)
         conn.commit()
@@ -281,17 +296,17 @@ class Model(metaclass=ModelMeta):
         del self
 
     def update(self):
-        fields_for_update = ""
+        values = []
+        names = []
         for name, value in self.__dict__.items():
-            if type(value) is bool:
-                fields_for_update += f"{name} = {int(value)}, "
-            elif type(value) is str:
-                fields_for_update += f"{name} = '{value}', "
-            else:
-                fields_for_update += f"{name} = {value}, "
 
-        update_cmd = f"UPDATE {self.Meta.table_name} SET {fields_for_update[:-2]} WHERE ID = {self.id};"
-        cursor.execute(update_cmd)
+            if name != "id":
+                values += [self._fields[name].to_sql(value)]
+                names += [f"{name} = ?"]
+
+        names = ", ".join(names)
+        update_cmd = f"UPDATE {self.Meta.table_name} SET {names} WHERE ID = {int(self.id)};"
+        conn.execute(update_cmd, values)
         conn.commit()
 
 
@@ -307,5 +322,5 @@ class User(Model):
         table_name = "Users"
 
 
-u = User.objects.filter(id=4).filter(username="«").get()
-print(u)
+User.objects.filter(username="test").update(username="abc")
+print(User.objects.filter(username="abc").get())
