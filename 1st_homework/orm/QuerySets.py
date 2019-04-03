@@ -62,18 +62,16 @@ class QuerySetWhere(QuerySet):
             return "", None
 
 
-class UpdateQuerySet(QuerySetWhere, abc.ABC):
+class UpdateQuerySet(QuerySet, abc.ABC):
     def __init__(self, model_cls, **kwargs):
         super().__init__(model_cls)
-        self.fields = None
-        self.filter(**kwargs)
 
     @abc.abstractmethod
     def update(self, **kwargs):
         pass
 
 
-class SelectQuerySet(UpdateQuerySet):
+class SelectQuerySet(QuerySetWhere, UpdateQuerySet):
     def __init__(self, model_cls, **kwargs):
         super().__init__(model_cls)
         self.fields = None

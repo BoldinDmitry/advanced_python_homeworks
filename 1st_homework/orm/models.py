@@ -4,6 +4,7 @@ from .database import conn, cursor
 
 types_convert = {int: "integer", float: "real", str: "text", bool: "boolean"}
 
+
 class ModelMeta(type):
     def __new__(mcs, name, bases, namespace):
         if name == "Model":
