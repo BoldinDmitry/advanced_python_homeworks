@@ -10,16 +10,57 @@ import requests
 import json
 import time
 
-sentinel = -1
+sentinel = ...
 
-vk_token = os.environ["VK_TOKEN"]
-user_id = "192282006"
-vk_api_base = "https://api.vk.com/method/"
 
-get_server_url = vk_api_base + f"photos.getMessagesUploadServer?v=5.41&peer_id={user_id}&access_token={vk_token}"
-save_photo = vk_api_base + f"photos.saveMessagesPhoto?v=5.41&access_token={vk_token}&photo={{}}&server={{}}&hash={{}}"
-send_message = vk_api_base + \
-               f"messages.send?v=5.41&access_token={vk_token}&user_id={user_id}&attachment=photo{{}}_{{}}"
+class BaseVKRequest:
+    vk_token = os.environ["VK_TOKEN"]
+    user_id = "192282006"
+    vk_api_base = "https://api.vk.com/method/"
+
+
+class GetUploadServer(BaseVKRequest):
+    def __init__(self):
+        self.URL = self.vk_api_base + 'photos.getMessagesUploadServer'
+
+    def get_params(self):
+        return {
+            'v': 5.41,
+            'access_token': self.vk_token,
+            'peer_id': self.user_id,
+        }
+
+
+class SaveImage(BaseVKRequest):
+    def __init__(self, photo, server, photo_hash):
+        self.URL = self.vk_api_base + 'photos.saveMessagesPhoto'
+        self.photo = photo
+        self.server = server
+        self.hash = photo_hash
+
+    def get_params(self):
+        return {
+            'v': 5.41,
+            'access_token': self.vk_token,
+            'photo': self.photo,
+            'server': self.server,
+            'hash': self.hash,
+        }
+
+
+class SendMessage(BaseVKRequest):
+    def __init__(self, owner_id, media_id):
+        self.URL = self.vk_api_base + 'messages.send'
+        self.owner_id = owner_id
+        self.media_id = media_id
+
+    def get_params(self):
+        return {
+            'v': 5.41,
+            'access_token': self.vk_token,
+            'user_id': self.user_id,
+            'attachment': f'photo{self.owner_id}_{self.media_id}'
+        }
 
 
 def generate(data, q):
@@ -45,13 +86,20 @@ def upload(q):
 
     while True:
         qr = q.get()
+
         if qr is sentinel:
             break
 
+        # Get url of the server for an image uploading
+        get_upload_server = GetUploadServer()
+        get_url_response = requests.get(get_upload_server.URL, get_upload_server.get_params())
+        get_server_response = json.loads(get_url_response.text)
+
+        if 'error' in get_server_response or get_url_response.status_code != 200:
+            raise ValueError('Error while getting server url')
+
         file_id = uuid.uuid4().hex
 
-        # Пытался сделать без сохранения на диск, с буфером или просто передавать байты, не вышло, API вк просто фото
-        # не детектил
         with open(f"images/{file_id}.png", "wb") as outfile:
             outfile.write(qr)
 
@@ -60,25 +108,36 @@ def upload(q):
         }
         os.remove(f'images/{file_id}.png')
 
+        # Пытался отправлять так
+        # files = {
+        #         'photo': ('photo.png', qr, 'image/png', {'Expires': '0'})
+        #     }
+
         # Load a photo on the server
-        get_url_response = requests.get(get_server_url)
-        upload_url = json.loads(get_url_response.text)["response"]["upload_url"]
+        upload_url = get_server_response["response"]["upload_url"]
         response = requests.post(upload_url, files=files)
+        json_response = json.loads(response.text)
+
+        if 'error' in json_response or response.status_code != 200:
+            raise ValueError('Error while loading image on server')
 
         # Save the photo on the server
-        json_response = json.loads(response.text)
         photo = json_response["photo"]
         server = json_response["server"]
         photo_hash = json_response["hash"]
-        save_photo_url = save_photo.format(photo, server, photo_hash)
-        response = requests.get(save_photo_url)
+        save_image = SaveImage(photo, server, photo_hash)
+        response = requests.get(save_image.URL, save_image.get_params())
+        json_response = json.loads(response.text)
+
+        if 'error' in json_response or response.status_code != 200:
+            raise ValueError('Error while saving image on server')
 
         # Send the photo to user
-        json_response = json.loads(response.text)["response"][0]
+        json_response = json_response["response"][0]
         owner_id = json_response["owner_id"]
         media_id = json_response["id"]
-        send_message_url = send_message.format(owner_id, media_id)
-        requests.get(send_message_url)
+        send_message = SendMessage(owner_id, media_id)
+        requests.get(send_message.URL, send_message.get_params())
 
         if time.time() - old_time >= 1:
             old_time = time.time()
