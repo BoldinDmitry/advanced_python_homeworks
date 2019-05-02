@@ -143,7 +143,8 @@ def upload(q):
         photo = json_response["photo"]
         server = json_response["server"]
         photo_hash = json_response["hash"]
-        json_response = Image(photo, server, photo_hash).save()
+        image = Image(photo, server, photo_hash)
+        json_response = image.save()
 
         if 'error' in json_response or response.status_code != 200:
             raise ValueError('Error while saving image on server')
