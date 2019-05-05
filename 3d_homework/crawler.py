@@ -1,8 +1,9 @@
-import re
-from bs4 import BeautifulSoup
 import asyncio
-from aiohttp import ClientSession, TCPConnector
+import re
+
 from aioelasticsearch import Elasticsearch
+from aiohttp import ClientSession, TCPConnector
+from bs4 import BeautifulSoup
 
 
 class Crawler:
@@ -15,17 +16,11 @@ class Crawler:
 
     async def make_record_to_es(self, link, soup):
         cleaned_text = soup.get_text()
-        doc = {
-            'link': link,
-            'body': cleaned_text,
-        }
+        doc = {"link": link, "body": cleaned_text}
         async with Elasticsearch() as es:
             self.INDEX += 1
             await es.create(
-                index="crawler_links",
-                doc_type="crawler_links",
-                id=self.INDEX,
-                body=doc
+                index="crawler_links", doc_type="crawler_links", id=self.INDEX, body=doc
             )
             await es.close()
             asyncio.sleep(1)
@@ -38,7 +33,7 @@ class Crawler:
             soup = BeautifulSoup(body, "html.parser")
             await self.make_record_to_es(url, soup)
 
-            for a in soup.findAll('a', attrs={'href': re.compile("^http")}):
+            for a in soup.findAll("a", attrs={"href": re.compile("^http")}):
                 link = a.attrs["href"]
                 if self.DOMAIN in link and link not in self.ALREADY_WAS:
                     await self.LINKS.put(link)
