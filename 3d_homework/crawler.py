@@ -57,7 +57,11 @@ class Crawler:
         connector = TCPConnector(limit=rps, verify_ssl=False)
 
         async with ClientSession(connector=connector) as session:
-            tasks = [asyncio.ensure_future(self.bound_fetch(sem, session))]
+
+            tasks = []
+            for _ in range(5):
+                task = asyncio.ensure_future(self.bound_fetch(sem, session))
+                tasks.append(task)
 
             responses = asyncio.gather(*tasks)
             await responses
