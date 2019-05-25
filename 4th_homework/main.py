@@ -1,13 +1,13 @@
 import timeit
-
 from matrix import Matrix
 from matrix_python import Matrix as PyMatrix
+
 
 matrix_types = {"C++": Matrix, "Python": PyMatrix}
 
 for matrix_name, matrix_type in matrix_types.items():
     start = timeit.default_timer()
-    x = [[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12]]
+    x = [[1, 2], [4, 5], [7, 8]]
     y = [[1, 2], [1, 2], [3, 4]]
 
     x_m = matrix_type(x)
@@ -21,8 +21,8 @@ for matrix_name, matrix_type in matrix_types.items():
 
     print(matrix_name, " time is ", stop - start)
 
-"""
-C++  time is  163.48103682498913
-Python  time is  1174.9535075379827
-"""
-
+# """
+# C++  time is  45.58985962404404
+# Python  time is  1203.591531381011
+# """
+#
