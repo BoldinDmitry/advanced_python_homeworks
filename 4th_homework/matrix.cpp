@@ -253,10 +253,11 @@ static PyObject *matrix_repr(matrix *self) {
 
     return _PyUnicodeWriter_Finish(&writer);
 
-    error:
-    Py_XDECREF(el_str);
-    _PyUnicodeWriter_Dealloc(&writer);
-    return NULL;
+error:
+Py_DECREF(el_str);
+_PyUnicodeWriter_Dealloc(&writer);
+Py_INCREF(tmp_row);
+return NULL;
 }
 
 static PyObject *matrix_str(matrix *self) {
