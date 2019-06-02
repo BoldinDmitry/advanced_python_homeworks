@@ -56,6 +56,7 @@ async def make_connection(loop):
     await Token.create_table(Token)
 
 
-loop = asyncio.get_event_loop()
-a = asyncio.ensure_future(make_connection(loop))
-loop.run_until_complete(a)
+if __name__ == '__main__':
+    loop = asyncio.get_event_loop()
+    a = asyncio.ensure_future(make_connection(loop))
+    loop.run_until_complete(a)
