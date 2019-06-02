@@ -1,8 +1,7 @@
 import abc
-import hashlib
 import binascii
+import hashlib
 import os
-
 from datetime import datetime
 
 
@@ -105,4 +104,4 @@ class DateTimeField(Field):
     def validate(self, value):
         if type(value) is datetime:
             return value
-        return datetime.fromtimestamp(value/1e3)
+        return datetime.fromtimestamp(value)

@@ -1,6 +1,5 @@
-from .Fields import Field
-from .QuerySets import Manage
-
+from .fields import Field
+from .query_sets import Manage
 
 types_convert = {int: "integer", float: "real", str: "text", bool: "boolean"}
 
@@ -86,16 +85,13 @@ class Model(metaclass=ModelMeta):
         del self
 
     async def update(self):
-        values = []
         names = []
         for name, value in self.__dict__.items():
 
             if name != "id":
-                values += [self._fields[name].to_sql(value)]
-                names += [f"{name} = ?"]
+                names += [f"{name} = {self._fields[name].to_sql(value)}"]
 
         names = ", ".join(names)
         update_cmd = f"UPDATE {self.Meta.table_name} SET {names} WHERE ID = {int(self.id)};"
-
-        await self.conn.execute(update_cmd, values)
+        await self.conn.execute(update_cmd)
         await self.conn.commit()
